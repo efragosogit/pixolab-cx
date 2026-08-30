@@ -37,10 +37,13 @@ services:
     volumes:
       - rails-data:/app/storage
     healthcheck:
+      # Relajado de 5s a 20s (2026-07-22) — a 5s competía por threads de
+      # Puma con tráfico real (RAILS_MAX_THREADS=5, un solo proceso). Ver
+      # docs/gotchas.md #7 en pixolab-server para el detalle completo.
       test: ['CMD', 'wget', '--spider', '-q', 'http://127.0.0.1:3000']
-      interval: 5s
-      timeout: 20s
-      retries: 10
+      interval: 20s
+      timeout: 10s
+      retries: 3
     restart: unless-stopped
 
   sidekiq:
@@ -80,7 +83,14 @@ services:
     volumes:
       - rails-data:/app/storage
     healthcheck:
-      test: ['CMD-SHELL', "bundle exec rails runner 'puts Sidekiq.redis(&:info)' > /dev/null 2>&1"]
+      # `bundle exec rails runner ...` bootea todo Rails en cada check
+      # (~21.6s medido, contra un timeout de 10s) — siempre fallaba, marcaba
+      # el contenedor "unhealthy" aunque Sidekiq funcionara bien, y gastaba
+      # un boot completo de Rails cada 30s. Cambiado 2026-07-22 (revertido
+      # sin querer en un merge de upstream, reaplicado 2026-08-30 — esta
+      # vez commiteado en el repo para que sobreviva un redeploy). Ver
+      # docs/gotchas.md #7 en pixolab-server.
+      test: ['CMD-SHELL', 'pgrep -f sidekiq || exit 1']
       interval: 30s
       timeout: 10s
       retries: 3
