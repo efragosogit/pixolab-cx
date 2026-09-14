@@ -31,8 +31,20 @@ class SafeFetch::PrivateNetworkRequest
     raise SsrfFilter::InvalidUriScheme, "URI scheme '#{uri.scheme}' not in whitelist: #{SsrfFilter::DEFAULT_SCHEME_WHITELIST}"
   end
 
+  # A DNS lookup that returns nothing is usually a transient resolver blip (seen in
+  # production under concurrent request bursts), not a permanently unresolvable host.
+  # Give it a couple of quick retries before treating it as unresolved.
+  DNS_RESOLUTION_ATTEMPTS = 3
+  DNS_RESOLUTION_RETRY_WAIT = 0.2
+
   def resolved_addresses(hostname)
-    ip_addresses = options.resolver.call(hostname)
+    ip_addresses = []
+    DNS_RESOLUTION_ATTEMPTS.times do |attempt|
+      ip_addresses = options.resolver.call(hostname)
+      break if ip_addresses.present?
+
+      sleep(DNS_RESOLUTION_RETRY_WAIT) if attempt < DNS_RESOLUTION_ATTEMPTS - 1
+    end
     raise SsrfFilter::UnresolvedHostname, "Could not resolve hostname '#{hostname}'" if ip_addresses.empty?
 
     ip_addresses
