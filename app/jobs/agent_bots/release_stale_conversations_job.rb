@@ -27,7 +27,11 @@ class AgentBots::ReleaseStaleConversationsJob < ApplicationJob
   # if the bot already replied and the customer just went quiet, that's a normal pause,
   # not a stuck conversation.
   def release(conversation)
-    last_message = conversation.messages.where(message_type: %i[incoming outgoing]).order(created_at: :desc).first
+    # Message has `default_scope { order(created_at: :asc) }` -- .order appends to it
+    # instead of replacing it, so this must be .reorder or it silently returns the
+    # OLDEST message instead of the newest (see Message#non_activity_messages for the
+    # same pattern already in use elsewhere in this codebase).
+    last_message = conversation.messages.where(message_type: %i[incoming outgoing]).reorder(created_at: :desc).first
     return unless last_message&.incoming?
 
     conversation.update!(assignee_agent_bot_id: nil, status: :open)
